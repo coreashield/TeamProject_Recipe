@@ -9,7 +9,9 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -78,8 +80,11 @@ fun CameraPreviewScreen(onBack: () -> Unit, onImageCaptured: (Uri) -> Unit) {
                     isLoading = false
                     onImageCaptured(uri)
                 }
-            }) {
-                Text(text = "Capture Image")
+            },
+                modifier = Modifier
+                    .padding(bottom = 16.dp) // 아래쪽 패딩 추가
+                    .align(Alignment.BottomCenter)) {
+                Text(text = "촬영")
             }
         }
     }

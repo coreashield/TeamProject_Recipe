@@ -41,19 +41,19 @@ object RetrofitClient {
     }
 }
 
-fun uploadImageToFlask(context: Context, imageUri: Uri) {
-    val file = File(getRealPathFromURI(context, imageUri))
-    val requestBody = RequestBody.create("image/*".toMediaTypeOrNull(), file)
-    val body = MultipartBody.Part.createFormData("file", file.name, requestBody)
+fun uploadImageToFlask(context: Context, imageUri: Uri?) {
+    val file = imageUri?.let { getRealPathFromURI(context, it) }?.let { File(it) }
+    val requestBody = file?.let { RequestBody.create("image/*".toMediaTypeOrNull(), it) }
+    val body = requestBody?.let { MultipartBody.Part.createFormData("file", file?.name, it) }
 
-    val call = RetrofitClient.instance.uploadImage(body)
-    call.enqueue(object : Callback<ResponseBody> {
+    body?.let { RetrofitClient.instance.uploadImage(it) }?.enqueue(object : Callback<ResponseBody> {
         override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
             if (response.isSuccessful) {
                 Toast.makeText(context, "Upload Success", Toast.LENGTH_SHORT).show()
                 Log.d("Upload", "Success")
             } else {
-                Toast.makeText(context, "Upload Failed: " + response.message(), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Upload Failed: " + response.message(), Toast.LENGTH_SHORT)
+                    .show()
                 Log.d("Upload", "Failed: " + response.message())
             }
         }
