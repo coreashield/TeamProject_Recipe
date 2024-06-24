@@ -11,9 +11,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
 
 @Composable
-fun FavoriteScreen(favorites: List<Recipe>, onFavoriteClick: (Recipe) -> Unit) {
+fun FavoriteScreen(favorites: List<Recipe>, onFavoriteClick: (Recipe) -> Unit, navController: NavController) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         if (favorites.isEmpty()) {
             Text("저장 된 레시피 없음")
@@ -26,7 +27,10 @@ fun FavoriteScreen(favorites: List<Recipe>, onFavoriteClick: (Recipe) -> Unit) {
                     MenuCard(
                         recipe = recipe,
                         isFavorite = true,
-                        onFavoriteClick = onFavoriteClick
+                        onFavoriteClick = onFavoriteClick,
+                        onClick = {
+                            navController.navigate("recipeInfo/${recipe.title}")
+                        }
                     )
                 }
             }

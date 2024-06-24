@@ -17,96 +17,138 @@ import retrofit2.Callback
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
+import retrofit2.http.Query
 import java.io.File
 
 interface FlaskApiService {
     @Multipart
-    @POST("/upload")
+    @POST("/upload_and_find")
     fun uploadImage(@Part file: MultipartBody.Part): Call<ResponseBody>
+
+    @GET("/findfoodlist")
+    fun getRecipes(@Query("ingredients") ingredients: String): Call<List<Recipe>>
 }
 
 object RetrofitClient {
-    private const val BASE_URL = "http://192.168.45.115:5000/"
+    private const val BASE_URL = "http://192.168.45.158:5000/"
 
     val instance: FlaskApiService by lazy {
-        val retrofit = Retrofit.Builder()
+        Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-
-        retrofit.create(FlaskApiService::class.java)
+            .create(FlaskApiService::class.java)
     }
 }
 
-fun uploadImageToFlask(context: Context, imageUri: Uri?) {
+fun uploadImageToFlask(context: Context, imageUri: Uri?, onResult: (String?) -> Unit) {
     val file = imageUri?.let { getRealPathFromURI(context, it) }?.let { File(it) }
     val requestBody = file?.let { RequestBody.create("image/*".toMediaTypeOrNull(), it) }
     val body = requestBody?.let { MultipartBody.Part.createFormData("file", file?.name, it) }
 
-    body?.let { RetrofitClient.instance.uploadImage(it) }?.enqueue(object : Callback<ResponseBody> {
-        override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
-            if (response.isSuccessful) {
-                Toast.makeText(context, "Upload Success", Toast.LENGTH_SHORT).show()
-                Log.d("Upload", "Success")
-            } else {
-                Toast.makeText(context, "Upload Failed: " + response.message(), Toast.LENGTH_SHORT)
-                    .show()
-                Log.d("Upload", "Failed: " + response.message())
+    if (body != null) {
+        RetrofitClient.instance.uploadImage(body).enqueue(object : Callback<ResponseBody> {
+            override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
+                if (response.isSuccessful) {
+                    response.body()?.let { responseBody ->
+                        val responseString = responseBody.string()
+                        onResult(responseString)
+                        showToast(context, "Upload Success: $responseString")
+                        Log.d("Upload", "Success: $responseString")
+                    }
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    showToast(context, "Upload Failed: $errorBody")
+                    Log.d("Upload", "Failed: $errorBody")
+                    onResult(errorBody)
+                }
             }
-        }
 
-        override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
-            Toast.makeText(context, "Upload Error: " + t.message, Toast.LENGTH_SHORT).show()
-            Log.d("Upload", "Error: " + t.message)
+            override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
+                onResult(null)
+                showToast(context, "Upload Error: ${t.message}")
+                Log.d("Upload", "Error: ${t.message}")
+            }
+        })
+    } else {
+        showToast(context, "File is null")
+        onResult(null)
+    }
+}
+fun getRealPathFromURI(context: Context, uri: Uri): String? {
+    return when {
+        DocumentsContract.isDocumentUri(context, uri) -> {
+            handleDocumentUri(context, uri)
         }
-    })
+        "content".equals(uri.scheme, ignoreCase = true) -> {
+            getDataColumn(context, uri, null, null)
+        }
+        "file".equals(uri.scheme, ignoreCase = true) -> {
+            uri.path
+        }
+        else -> null
+    }
 }
 
-fun getRealPathFromURI(context: Context, uri: Uri): String {
-    var result: String? = null
-    if (DocumentsContract.isDocumentUri(context, uri)) {
-        val documentId = DocumentsContract.getDocumentId(uri)
-        if (uri.authority == "com.android.providers.media.documents") {
+private fun handleDocumentUri(context: Context, uri: Uri): String? {
+    val documentId = DocumentsContract.getDocumentId(uri)
+    return when (uri.authority) {
+        "com.android.providers.media.documents" -> {
             val id = documentId.split(":")[1]
             val contentUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
             val selection = "_id=?"
             val selectionArgs = arrayOf(id)
-            result = getDataColumn(context, contentUri, selection, selectionArgs)
-        } else if (uri.authority == "com.android.providers.downloads.documents") {
+            getDataColumn(context, contentUri, selection, selectionArgs)
+        }
+        "com.android.providers.downloads.documents" -> {
             val contentUri = ContentUris.withAppendedId(
-                Uri.parse("content://downloads/public_downloads"), documentId.toLong())
-            result = getDataColumn(context, contentUri, null, null)
-        } else if (uri.authority == "com.android.externalstorage.documents") {
+                Uri.parse("content://downloads/public_downloads"), documentId.toLong()
+            )
+            getDataColumn(context, contentUri, null, null)
+        }
+        "com.android.externalstorage.documents" -> {
             val split = documentId.split(":")
             val type = split[0]
             if (type.equals("primary", true)) {
-                result = "${context.getExternalFilesDir(null)?.path}/${split[1]}"
-            }
+                "${context.getExternalFilesDir(null)?.path}/${split[1]}"
+            } else null
         }
-    } else if ("content".equals(uri.scheme, ignoreCase = true)) {
-        result = getDataColumn(context, uri, null, null)
-    } else if ("file".equals(uri.scheme, ignoreCase = true)) {
-        result = uri.path
+        else -> null
     }
-    return result ?: ""
 }
 
 fun getDataColumn(context: Context, uri: Uri, selection: String?, selectionArgs: Array<String>?): String? {
-    var cursor: Cursor? = null
-    val column = "_data"
-    val projection = arrayOf(column)
-
-    try {
-        cursor = context.contentResolver.query(uri, projection, selection, selectionArgs, null)
-        if (cursor != null && cursor.moveToFirst()) {
-            val index = cursor.getColumnIndexOrThrow(column)
-            return cursor.getString(index)
-        }
-    } finally {
-        cursor?.close()
+    val projection = arrayOf("_data")
+    context.contentResolver.query(uri, projection, selection, selectionArgs, null).use { cursor ->
+        return if (cursor != null && cursor.moveToFirst()) {
+            val index = cursor.getColumnIndexOrThrow("_data")
+            cursor.getString(index)
+        } else null
     }
-    return null
+}
+
+fun showToast(context: Context, message: String) {
+    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+}
+
+fun fetchRecipes(context: Context, ingredients: String, onResult: (List<Recipe>?) -> Unit) {
+    RetrofitClient.instance.getRecipes(ingredients).enqueue(object : Callback<List<Recipe>> {
+        override fun onResponse(call: Call<List<Recipe>>, response: Response<List<Recipe>>) {
+            if (response.isSuccessful) {
+                onResult(response.body())
+            } else {
+                showToast(context, "Failed to fetch recipes: ${response.errorBody()?.string()}")
+                onResult(null)
+            }
+        }
+
+        override fun onFailure(call: Call<List<Recipe>>, t: Throwable) {
+            showToast(context, "Error: ${t.message}")
+            onResult(null)
+        }
+    })
 }

@@ -1,7 +1,10 @@
 package com.example.teamproject_recipe
 
+import ProfileScreen
 import RecipeInfoView
+import RecipeScreen
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -46,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,10 +63,13 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import coil.compose.rememberAsyncImagePainter
+import java.net.URLDecoder
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,6 +105,7 @@ fun MainScreen() {
     val scaffoldState = remember { SnackbarHostState() }
     val items = listOf("Home", "Favorite", "Profile")
     val icons = listOf(Icons.Default.Home, Icons.Default.Favorite, Icons.Default.Person)
+    var selectedItem by remember { mutableStateOf(0) }
     var favorites by rememberSaveable { mutableStateOf(listOf<Recipe>()) }
 
     Scaffold(
@@ -126,8 +134,9 @@ fun MainScreen() {
                         colors = NavigationBarItemDefaults.colors(indicatorColor = White),
                         icon = { Icon(icons[index], contentDescription = item) },
                         label = { Text(item) },
-                        selected = false, // 선택 여부 로직 추가 필요
+                        selected = selectedItem == index,
                         onClick = {
+                            selectedItem = index
                             when (item) {
                                 "Home" -> navController.navigate("home")
                                 "Favorite" -> navController.navigate("favorite")
@@ -147,15 +156,15 @@ fun MainScreen() {
     }
 }
 
-
 @Composable
 fun NavHostContainer(
     navController: NavHostController,
     paddingValues: PaddingValues,
     favorites: List<Recipe>,
-    onFavoritesChanged: (List<Recipe>) -> Unit
+    onFavoritesChanged: (List<Recipe>) -> Unit,
 ) {
     var imageUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var uploadResponse by rememberSaveable { mutableStateOf<String?>(null) }
 
     NavHost(
         navController = navController,
@@ -163,7 +172,11 @@ fun NavHostContainer(
         Modifier.padding(paddingValues)
     ) {
         composable("home") {
-            HomeScreen(navController, imageUri, onImageUriChanged = { imageUri = it })
+            HomeScreen(
+                navController,
+                imageUri,
+                onImageUriChanged = { imageUri = it },
+                onUploadResponse = { uploadResponse = it })
         }
 
         composable("favorite") {
@@ -174,11 +187,11 @@ fun NavHostContainer(
                     favorites + recipe
                 }
                 onFavoritesChanged(updatedFavorites)
-            })
+            }, navController = navController)
         }
 
         composable("profile/{userId}") { backStackEntry ->
-            ProfileScreen(userId = backStackEntry.arguments?.getString("userId"))
+            backStackEntry.arguments?.getString("userId")?.let { ProfileScreen(userId = it) }
         }
 
         composable("camera") {
@@ -193,25 +206,33 @@ fun NavHostContainer(
         composable("analysis/{imageUri}") { backStackEntry ->
             val encodedUri = backStackEntry.arguments?.getString("imageUri")
             val decodedUri = encodedUri?.let { Uri.parse(Uri.decode(it)) }
-            AnalysisScreen(navController, imageUri)
+            AnalysisScreen(navController, decodedUri, uploadResponse)
         }
 
         composable("recipe") {
-            MenuListView(favorites, onFavoritesChanged)
+            MenuListView(navController, favorites, onFavoritesChanged)
         }
 
-        composable("recipeInfo") {
-            RecipeInfoView(navController)
+        composable(
+            "recipeInfo/{recipeTitle}/{recipeImage}",
+            arguments = listOf(
+                navArgument("recipeTitle") { type = NavType.StringType },
+                navArgument("recipeImage") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val recipeTitle = URLDecoder.decode(backStackEntry.arguments?.getString("recipeTitle"), "UTF-8")
+            val recipeImage = URLDecoder.decode(backStackEntry.arguments?.getString("recipeImage"), "UTF-8")
+            RecipeInfoView(navController, recipeTitle, recipeImage)
         }
+        composable("recipeScreen") { RecipeScreen(navController) }
     }
 }
-
-
 @Composable
 fun HomeScreen(
     navController: NavController,
     initialImageUri: Uri?,
-    onImageUriChanged: (Uri?) -> Unit
+    onImageUriChanged: (Uri?) -> Unit,
+    onUploadResponse: (String?) -> Unit,
 ) {
     var isCameraPreviewVisible by remember { mutableStateOf(false) }
     val pickMediaLauncher = rememberLauncherForActivityResult(
@@ -221,12 +242,14 @@ fun HomeScreen(
             onImageUriChanged(it)
         }
     }
+    val context = LocalContext.current
+    var isLoading by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
-    )
-    {
+    ) {
         if (isCameraPreviewVisible) {
             CameraPreviewScreen(
                 onBack = { isCameraPreviewVisible = false },
@@ -238,74 +261,113 @@ fun HomeScreen(
         } else {
             Column(
                 modifier = Modifier
-                    .padding(bottom = 16.dp),
+                    .padding(bottom = 16.dp)
+                    .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Top
             ) {
-
-                Image(
-                    painter = rememberAsyncImagePainter(initialImageUri),
-                    contentDescription = "Captured Image",
-                    modifier = Modifier
-                        .size(400.dp)
-                        .padding(start = 16.dp, end = 16.dp),
-                    contentScale = ContentScale.Crop,
-                )
-
+                DisplayImage(initialImageUri)
                 Spacer(modifier = Modifier.height(16.dp))
-
-                Button(onClick = { isCameraPreviewVisible = true }) {
-                    Icon(
-                        imageVector = Icons.Default.AddCircle,
-                        contentDescription = "Camera Icon",
-                        modifier = Modifier.size(24.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("재료 사진 찍기")
-                }
-
+                CaptureImageButton { isCameraPreviewVisible = true }
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = {
-                    pickMediaLauncher.launch(
-                        PickVisualMediaRequest(
-                            ActivityResultContracts.PickVisualMedia.ImageOnly
-                        )
-                    )
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.AccountBox, // 사용할 아이콘 설정
-                        contentDescription = "Select GalleryImage",
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp)) // 아이콘과 텍스트 사이에 간격 추가
-                    Text("갤러리")
-                }
-
+                PickImageButton { pickMediaLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                 Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = {
-                        val encodedUri = Uri.encode(initialImageUri.toString())
-                        navController.navigate("analysis/$encodedUri")
-                    },
-                    enabled = initialImageUri != null
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Select GalleryImage",
-                        modifier = Modifier.size(24.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("재료 파악하기")
-                }
+                AnalyzeImageButton(navController, initialImageUri, context, isLoading, onUploadResponse) { isLoading = it }
             }
         }
     }
 }
 
 @Composable
-fun ProfileScreen(userId: String?) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("$userId profile Screen")
+fun DisplayImage(imageUri: Uri?) {
+    Image(
+        painter = rememberAsyncImagePainter(imageUri),
+        contentDescription = "Captured Image",
+        modifier = Modifier
+            .size(320.dp)
+            .padding(start = 16.dp, end = 16.dp),
+        contentScale = ContentScale.Crop,
+    )
+}
+
+@Composable
+fun CaptureImageButton(onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(start = 32.dp, end = 32.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.AddCircle,
+            contentDescription = "Camera Icon",
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("재료 사진 찍기")
     }
 }
+
+@Composable
+fun PickImageButton(onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(start = 32.dp, end = 32.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.AccountBox,
+            contentDescription = "Select GalleryImage",
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("갤러리")
+    }
+}
+
+@Composable
+fun AnalyzeImageButton(
+    navController: NavController,
+    initialImageUri: Uri?,
+    context: Context,
+    isLoading: Boolean,
+    onUploadResponse: (String?) -> Unit,
+    onLoadingChanged: (Boolean) -> Unit
+) {
+    Button(
+        onClick = {
+            initialImageUri?.let {
+                onLoadingChanged(true)
+                uploadImageToFlask(context, it) { uploadResponse ->
+                    onUploadResponse(uploadResponse)
+                    val encodedUri = Uri.encode(initialImageUri.toString())
+                    navController.navigate("analysis/$encodedUri")
+                    onLoadingChanged(false)
+                }
+            }
+        },
+        enabled = initialImageUri != null,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(start = 32.dp, end = 32.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = "Select GalleryImage",
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("재료 파악하기")
+    }
+}
+
+//@Composable
+//fun ProfileScreen(userId: String?) {
+//    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+//        Text("$userId profile Screen")
+//    }
+//}

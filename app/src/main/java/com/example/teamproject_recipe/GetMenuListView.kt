@@ -1,6 +1,7 @@
 package com.example.teamproject_recipe
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,26 +25,39 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
+
+import coil.compose.rememberAsyncImagePainter
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 @Composable
 fun MenuCard(
     recipe: Recipe,
     isFavorite: Boolean,
-    onFavoriteClick: (Recipe) -> Unit
+    onFavoriteClick: (Recipe) -> Unit,
+    onClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .width(180.dp)
             .padding(8.dp)
+            .clickable { onClick() }
     ) {
         Box(
             modifier = Modifier
@@ -50,7 +65,7 @@ fun MenuCard(
                 .height(120.dp)
         ) {
             Image(
-                painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                painter = rememberAsyncImagePainter(model = recipe.image),
                 contentDescription = recipe.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -78,33 +93,43 @@ fun MenuCard(
             fontSize = 16.sp,
             modifier = Modifier.fillMaxWidth()
         )
-        Text(text = recipe.description, fontSize = 14.sp, color = Color.Gray)
+
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MenuListView(favorites: List<Recipe>, onFavoritesChanged: (List<Recipe>) -> Unit) {
-    val recipes = listOf(
-        Recipe("올리브 소시지 솥밥", "팜조합한 소시지와 올리브의 감칠맛 가득한", "image_url"),
-//        Recipe("원 팟 파스타", "냄비 하나로 완성하는 초간단", "image_url"),
-//        Recipe("그릴드 브리치즈", "고소한 브리치즈와 새콤한 토마토의 만남", "image_url"),
-//        Recipe("그릴드 피치 샐러드", "그릴자국은 널 복숭아가 멋진", "image_url"),
-//        Recipe("과카몰리 부리또콘", "양쪽맛은 팡팡콘", "image_url"),
-//        Recipe("아스파라거스 부라타 샐러드", "싱그럽고 산뜻한", "image_url"),
-//        Recipe("베지케이크", "채소를 더 맛있게", "image_url"),
-//        Recipe("그린주스", "건강한 삶을 위한", "image_url")
-    )
+fun MenuListView(navController: NavController, favorites: List<Recipe>, onFavoritesChanged: (List<Recipe>) -> Unit) {
+    val context = LocalContext.current
+    var recipes by remember { mutableStateOf<List<Recipe>>(emptyList()) }
+
+    // Fetch recipes when the Composable is first composed
+    LaunchedEffect(Unit) {
+        fetchRecipes(context, "rice,milk,onion") { fetchedRecipes ->
+            if (fetchedRecipes != null) {
+                recipes = fetchedRecipes
+            } else {
+                showToast(context, "Failed to load recipes")
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(end = 16.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("추천 레시피")
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "뒤로 가기")
                     }
                 }
             )
@@ -132,6 +157,12 @@ fun MenuListView(favorites: List<Recipe>, onFavoritesChanged: (List<Recipe>) -> 
                                     favorites + selectedRecipe
                                 }
                             )
+                        },
+                        onClick = {
+                            val encodedTitle = URLEncoder.encode(recipe.title, StandardCharsets.UTF_8.toString())
+                            val encodedImage = URLEncoder.encode(recipe.image, StandardCharsets.UTF_8.toString())
+                            navController.navigate("recipeInfo/$encodedTitle/$encodedImage")
+//                            navController.navigate("recipeInfo/${recipe.title}/${recipe.image}")
                         }
                     )
                 }
@@ -140,10 +171,23 @@ fun MenuListView(favorites: List<Recipe>, onFavoritesChanged: (List<Recipe>) -> 
     }
 }
 
-
 data class Recipe(
+    val id: Int,
     val title: String,
-    val description: String,
-    val imageUrl: String
+    val image: String,
+    val likes: Int,
+    val missedIngredientCount: Int,
+    val missedIngredients: List<Ingredient>,
+    val usedIngredientCount: Int,
+    val usedIngredients: List<Ingredient>
 )
 
+data class Ingredient(
+    val id: Int,
+    val aisle: String,
+    val amount: Double,
+    val image: String,
+    val name: String,
+    val original: String,
+    val unit: String
+)
