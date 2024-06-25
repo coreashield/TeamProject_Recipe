@@ -2,7 +2,6 @@ package com.example.teamproject_recipe
 
 import ProfileScreen
 import RecipeInfoView
-import RecipeScreen
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -14,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -47,6 +49,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,6 +57,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Color.Companion.Black
+import androidx.compose.ui.graphics.Color.Companion.Gray
 import androidx.compose.ui.graphics.Color.Companion.Red
 import androidx.compose.ui.graphics.Color.Companion.White
 import androidx.compose.ui.layout.ContentScale
@@ -69,7 +75,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import coil.compose.rememberAsyncImagePainter
-import java.net.URLDecoder
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,8 +110,10 @@ fun MainScreen() {
     val scaffoldState = remember { SnackbarHostState() }
     val items = listOf("Home", "Favorite", "Profile")
     val icons = listOf(Icons.Default.Home, Icons.Default.Favorite, Icons.Default.Person)
-    var selectedItem by remember { mutableStateOf(0) }
+    var selectedItem by remember { mutableIntStateOf(0) }
     var favorites by rememberSaveable { mutableStateOf(listOf<Recipe>()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var ingredients by remember { mutableStateOf("") }
 
     Scaffold(
         snackbarHost = { SnackbarHost(scaffoldState) },
@@ -128,12 +135,15 @@ fun MainScreen() {
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = Color(0xFFFF0000),
+                modifier = Modifier.height(56.dp)) {
                 items.forEachIndexed { index, item ->
                     NavigationBarItem(
-                        colors = NavigationBarItemDefaults.colors(indicatorColor = White),
+                        colors = NavigationBarItemDefaults.colors(
+                            unselectedIconColor = White,
+                            selectedIconColor = White
+                        ),
                         icon = { Icon(icons[index], contentDescription = item) },
-                        label = { Text(item) },
                         selected = selectedItem == index,
                         onClick = {
                             selectedItem = index
@@ -148,11 +158,26 @@ fun MainScreen() {
             }
         }
     ) { paddingValues ->
-        NavHostContainer(
-            navController = navController,
-            paddingValues = paddingValues,
-            favorites = favorites,
-            onFavoritesChanged = { favorites = it })
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            NavHostContainer(
+                navController = navController,
+                paddingValues = paddingValues,
+                favorites = favorites,
+                onFavoritesChanged = { favorites = it },
+                onLoadingChanged = { isLoading = it },
+                ingredients = ingredients,
+                onIngredientsChanged = { ingredients = it }
+            )
+        }
     }
 }
 
@@ -162,6 +187,9 @@ fun NavHostContainer(
     paddingValues: PaddingValues,
     favorites: List<Recipe>,
     onFavoritesChanged: (List<Recipe>) -> Unit,
+    onLoadingChanged: (Boolean) -> Unit,
+    ingredients: String,
+    onIngredientsChanged: (String) -> Unit
 ) {
     var imageUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var uploadResponse by rememberSaveable { mutableStateOf<String?>(null) }
@@ -176,7 +204,9 @@ fun NavHostContainer(
                 navController,
                 imageUri,
                 onImageUriChanged = { imageUri = it },
-                onUploadResponse = { uploadResponse = it })
+                onUploadResponse = { uploadResponse = it },
+                onLoadingChanged = onLoadingChanged
+            )
         }
 
         composable("favorite") {
@@ -203,36 +233,35 @@ fun NavHostContainer(
             )
         }
 
-        composable("analysis/{imageUri}") { backStackEntry ->
-            val encodedUri = backStackEntry.arguments?.getString("imageUri")
-            val decodedUri = encodedUri?.let { Uri.parse(Uri.decode(it)) }
-            AnalysisScreen(navController, decodedUri, uploadResponse)
+        composable("analysis/{imageUri}") {
+            AnalysisScreen(navController, uploadResponse, onIngredientsChanged)
         }
 
         composable("recipe") {
-            MenuListView(navController, favorites, onFavoritesChanged)
+            MenuListView(navController, favorites, onFavoritesChanged, ingredients)
         }
 
         composable(
-            "recipeInfo/{recipeTitle}/{recipeImage}",
+            "recipeInfo/{recipeId}",
             arguments = listOf(
-                navArgument("recipeTitle") { type = NavType.StringType },
-                navArgument("recipeImage") { type = NavType.StringType }
+                navArgument("recipeId") { type = NavType.IntType }
             )
         ) { backStackEntry ->
-            val recipeTitle = URLDecoder.decode(backStackEntry.arguments?.getString("recipeTitle"), "UTF-8")
-            val recipeImage = URLDecoder.decode(backStackEntry.arguments?.getString("recipeImage"), "UTF-8")
-            RecipeInfoView(navController, recipeTitle, recipeImage)
+            val recipeId = backStackEntry.arguments?.getInt("recipeId") ?: 0
+            RecipeInfoView(navController, recipeId)
         }
-        composable("recipeScreen") { RecipeScreen(navController) }
     }
 }
+
+
+
 @Composable
 fun HomeScreen(
     navController: NavController,
     initialImageUri: Uri?,
     onImageUriChanged: (Uri?) -> Unit,
     onUploadResponse: (String?) -> Unit,
+    onLoadingChanged: (Boolean) -> Unit
 ) {
     var isCameraPreviewVisible by remember { mutableStateOf(false) }
     val pickMediaLauncher = rememberLauncherForActivityResult(
@@ -278,15 +307,17 @@ fun HomeScreen(
     }
 }
 
+
 @Composable
 fun DisplayImage(imageUri: Uri?) {
     Image(
         painter = rememberAsyncImagePainter(imageUri),
         contentDescription = "Captured Image",
         modifier = Modifier
+            .fillMaxWidth()
             .size(320.dp)
             .padding(start = 16.dp, end = 16.dp),
-        contentScale = ContentScale.Crop,
+        contentScale = ContentScale.Inside,
     )
 }
 
@@ -297,7 +328,12 @@ fun CaptureImageButton(onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .padding(start = 32.dp, end = 32.dp)
+            .padding(start = 72.dp, end = 72.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = White,
+            contentColor = Black // 원하는 텍스트 및 아이콘 색상
+        ),
+        border = BorderStroke(1.dp, Gray),
     ) {
         Icon(
             imageVector = Icons.Default.AddCircle,
@@ -313,21 +349,25 @@ fun CaptureImageButton(onClick: () -> Unit) {
 fun PickImageButton(onClick: () -> Unit) {
     Button(
         onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = White,
+            contentColor = Black // 원하는 텍스트 및 아이콘 색상
+        ),
+        border = BorderStroke(1.dp, Gray),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .padding(start = 32.dp, end = 32.dp)
+            .padding(start = 72.dp, end = 72.dp)
     ) {
         Icon(
             imageVector = Icons.Default.AccountBox,
-            contentDescription = "Select GalleryImage",
+            contentDescription = "Select Gallery Image",
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text("갤러리")
     }
 }
-
 @Composable
 fun AnalyzeImageButton(
     navController: NavController,
@@ -349,25 +389,33 @@ fun AnalyzeImageButton(
                 }
             }
         },
-        enabled = initialImageUri != null,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = White,
+            contentColor = Black // 원하는 텍스트 및 아이콘 색상
+        ),
+        border = BorderStroke(1.dp, Gray),
+        enabled = initialImageUri != null && !isLoading,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .padding(start = 32.dp, end = 32.dp)
     ) {
-        Icon(
-            imageVector = Icons.Default.Search,
-            contentDescription = "Select GalleryImage",
-            modifier = Modifier.size(24.dp),
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text("재료 파악하기")
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                color = Black,
+                strokeWidth = 2.dp
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("분석 중...")
+        } else {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Select GalleryImage",
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("재료 파악하기")
+        }
     }
 }
-
-//@Composable
-//fun ProfileScreen(userId: String?) {
-//    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-//        Text("$userId profile Screen")
-//    }
-//}

@@ -2,6 +2,7 @@ package com.example.teamproject_recipe
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -36,7 +37,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,13 +51,13 @@ fun MenuCard(
     recipe: Recipe,
     isFavorite: Boolean,
     onFavoriteClick: (Recipe) -> Unit,
-    onClick: () -> Unit
+    onClick: (Int) -> Unit
 ) {
     Column(
         modifier = Modifier
             .width(180.dp)
             .padding(8.dp)
-            .clickable { onClick() }
+            .clickable { onClick(recipe.id) }
     ) {
         Box(
             modifier = Modifier
@@ -99,17 +99,24 @@ fun MenuCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MenuListView(navController: NavController, favorites: List<Recipe>, onFavoritesChanged: (List<Recipe>) -> Unit) {
+fun MenuListView(
+    navController: NavController,
+    favorites: List<Recipe>,
+    onFavoritesChanged: (List<Recipe>) -> Unit,
+    ingredients: String
+) {
     val context = LocalContext.current
     var recipes by remember { mutableStateOf<List<Recipe>>(emptyList()) }
 
     // Fetch recipes when the Composable is first composed
-    LaunchedEffect(Unit) {
-        fetchRecipes(context, "rice,milk,onion") { fetchedRecipes ->
-            if (fetchedRecipes != null) {
-                recipes = fetchedRecipes
-            } else {
-                showToast(context, "Failed to load recipes")
+    LaunchedEffect(ingredients) {
+        if (ingredients.isNotEmpty()) {
+            fetchRecipes(context, ingredients) { fetchedRecipes ->
+                if (fetchedRecipes != null) {
+                    recipes = fetchedRecipes
+                } else {
+                    showToast(context, "Failed to load recipes")
+                }
             }
         }
     }
@@ -139,6 +146,8 @@ fun MenuListView(navController: NavController, favorites: List<Recipe>, onFavori
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Top
         ) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
@@ -158,11 +167,8 @@ fun MenuListView(navController: NavController, favorites: List<Recipe>, onFavori
                                 }
                             )
                         },
-                        onClick = {
-                            val encodedTitle = URLEncoder.encode(recipe.title, StandardCharsets.UTF_8.toString())
-                            val encodedImage = URLEncoder.encode(recipe.image, StandardCharsets.UTF_8.toString())
-                            navController.navigate("recipeInfo/$encodedTitle/$encodedImage")
-//                            navController.navigate("recipeInfo/${recipe.title}/${recipe.image}")
+                        onClick = { id ->
+                            navController.navigate("recipeInfo/$id")
                         }
                     )
                 }

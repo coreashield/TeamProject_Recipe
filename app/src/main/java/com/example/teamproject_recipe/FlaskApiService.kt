@@ -1,13 +1,41 @@
 package com.example.teamproject_recipe
 
+import RecipeDetails
 import android.content.ContentUris
 import android.content.Context
-import android.database.Cursor
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
+import androidx.navigation.NavHostController
+import coil.compose.rememberAsyncImagePainter
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
@@ -17,11 +45,7 @@ import retrofit2.Callback
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.http.GET
-import retrofit2.http.Multipart
-import retrofit2.http.POST
-import retrofit2.http.Part
-import retrofit2.http.Query
+import retrofit2.http.*
 import java.io.File
 
 interface FlaskApiService {
@@ -31,10 +55,13 @@ interface FlaskApiService {
 
     @GET("/findfoodlist")
     fun getRecipes(@Query("ingredients") ingredients: String): Call<List<Recipe>>
+
+    @GET("/saverecipe/{id}")
+    fun getRecipeDetails(@Path("id") id: String): Call<List<RecipeDetails>>
 }
 
 object RetrofitClient {
-    private const val BASE_URL = "http://192.168.45.158:5000/"
+    const val BASE_URL = "http://192.168.45.158:5000/"
 
     val instance: FlaskApiService by lazy {
         Retrofit.Builder()
@@ -57,7 +84,6 @@ fun uploadImageToFlask(context: Context, imageUri: Uri?, onResult: (String?) -> 
                     response.body()?.let { responseBody ->
                         val responseString = responseBody.string()
                         onResult(responseString)
-                        showToast(context, "Upload Success: $responseString")
                         Log.d("Upload", "Success: $responseString")
                     }
                 } else {
@@ -79,6 +105,7 @@ fun uploadImageToFlask(context: Context, imageUri: Uri?, onResult: (String?) -> 
         onResult(null)
     }
 }
+
 fun getRealPathFromURI(context: Context, uri: Uri): String? {
     return when {
         DocumentsContract.isDocumentUri(context, uri) -> {
@@ -149,6 +176,24 @@ fun fetchRecipes(context: Context, ingredients: String, onResult: (List<Recipe>?
         override fun onFailure(call: Call<List<Recipe>>, t: Throwable) {
             showToast(context, "Error: ${t.message}")
             onResult(null)
+        }
+    })
+}
+
+fun uploadIngredientsToFlask(context: Context, ingredients: String, onResponse: (String?) -> Unit) {
+    RetrofitClient.instance.getRecipes(ingredients).enqueue(object : Callback<List<Recipe>> {
+        override fun onResponse(call: Call<List<Recipe>>, response: Response<List<Recipe>>) {
+            if (response.isSuccessful) {
+                onResponse(response.body()?.joinToString(",") { it.title })
+            } else {
+                showToast(context, "Failed to upload ingredients: ${response.errorBody()?.string()}")
+                onResponse(null)
+            }
+        }
+
+        override fun onFailure(call: Call<List<Recipe>>, t: Throwable) {
+            showToast(context, "Error: ${t.message}")
+            onResponse(null)
         }
     })
 }
