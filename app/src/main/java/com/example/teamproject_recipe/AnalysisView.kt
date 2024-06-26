@@ -205,7 +205,6 @@ fun IngredientsItem(label: String) {
 }
 
 // 이미지와 경계 상자를 표시하는 함수
-// 이미지와 경계 상자를 표시하는 함수
 @Composable
 fun ImageWithBoundingBox(imageUri: Uri?) {
     Box(
